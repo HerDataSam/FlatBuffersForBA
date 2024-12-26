@@ -1027,6 +1027,8 @@ class Parser : public ParserState {
 
 // Utility functions for multiple generators:
 
+extern std::string MakeCamelFromPascal(const std::string &in, bool first = true);
+
 extern std::string MakeCamel(const std::string &in, bool first = true);
 
 extern std::string MakeScreamingCamel(const std::string &in);

@@ -72,7 +72,7 @@ class TsGenerator : public BaseGenerator {
 
     code += classcode;
     auto filename = NamespaceDir(*definition.defined_namespace, true) +
-                    ToDasherizedCase(definition.name) + ".ts";
+                    definition.name + ".ts";
     return SaveFile(filename.c_str(), code, false);
   }
 
@@ -796,7 +796,7 @@ class TsGenerator : public BaseGenerator {
       auto &field = **it;
       if (field.deprecated) continue;
 
-      const auto field_name = MakeCamel(field.name, false);
+      const auto field_name = MakeCamelFromPascal(field.name, true);
       const std::string field_binded_method =
           "this." + field_name + ".bind(this)";
 

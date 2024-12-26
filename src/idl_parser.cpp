@@ -107,6 +107,19 @@ std::string MakeCamel(const std::string &in, bool first) {
   return s;
 }
 
+// Convert an PascalCase in to camelCase.
+// Also lowercases the first character if first is true.
+std::string MakeCamelFromPascal(const std::string &in, bool first) {
+  std::string s;
+  for (size_t i = 0; i < in.length(); i++) {
+    if (!i && first)
+      s += CharToLower(in[0]);
+    else
+      s += in[i];
+  }
+  return s;
+}
+
 // Convert an underscore_based_identifier in to screaming snake case.
 std::string MakeScreamingCamel(const std::string &in) {
   std::string s;

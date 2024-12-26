@@ -114,6 +114,10 @@ class CSharpGenerator : public BaseGenerator {
       code += "using global::System;\n";
       code += "using global::System.Collections.Generic;\n";
       code += "using global::FlatBuffers;\n\n";
+      code += "using Newtonsoft.Json;\n";
+      code += "using Decagrammaton;\n\n";
+
+
     }
     code += classcode;
     if (!namespace_name.empty()) { code += "\n}\n"; }
@@ -279,11 +283,11 @@ class CSharpGenerator : public BaseGenerator {
     // That, and Java Enums are expensive, and not universally liked.
     GenComment(enum_def.doc_comment, code_ptr, &comment_config);
 
-    if (opts.cs_gen_json_serializer && opts.generate_object_based_api) {
+    //if (opts.cs_gen_json_serializer && opts.generate_object_based_api) {
       code +=
           "[Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters."
           "StringEnumConverter))]\n";
-    }
+    //}
     // In C# this indicates enumeration values can be treated as bit flags.
     if (enum_def.attributes.Lookup("bit_flags")) {
       code += "[System.FlagsAttribute]\n";
@@ -546,6 +550,7 @@ class CSharpGenerator : public BaseGenerator {
     code += struct_def.fixed ? "Struct" : "Table";
     code += " __p;\n";
 
+    code += "  [JsonIgnore]\n";
     code += "  public ByteBuffer ByteBuffer { get { return __p.bb; } }\n";
 
     if (!struct_def.fixed) {
@@ -619,6 +624,9 @@ class CSharpGenerator : public BaseGenerator {
       std::string dest_cast = DestinationCast(field.value.type);
       std::string src_cast = SourceCast(field.value.type);
       std::string field_name_camel = MakeCamel(field.name, true);
+      if (field.value.type.base_type == BASE_TYPE_VECTOR) { 
+        field_name_camel += "s";
+      }
       std::string method_start =
           "  public " + type_name_dest + optional + " " + field_name_camel;
       std::string obj = "(new " + type_name + "())";
@@ -630,6 +638,8 @@ class CSharpGenerator : public BaseGenerator {
               ? " { return "
               : (" { int o = __p.__offset(" + NumToString(field.value.offset) +
                  "); return o != 0 ? ");
+      auto convert_prefix = "Sefirot.decode(";
+      std::string convert_suffix = ")";
       // Generate the accessors that don't do object reuse.
       if (field.value.type.base_type == BASE_TYPE_STRUCT) {
       } else if (IsVector(field.value.type) &&
@@ -640,7 +650,23 @@ class CSharpGenerator : public BaseGenerator {
         method_start += "<TTable>";
         type_name = type_name_dest;
       }
-      std::string getter = dest_cast + GenGetter(field.value.type);
+
+      auto typeCheck = IsScalar(field.value.type.base_type) ||
+        field.value.type.base_type == BASE_TYPE_STRING || 
+        (field.value.type.base_type == BASE_TYPE_VECTOR &&
+           (IsEnum(field.value.type.VectorType()) || 
+            field.value.type.VectorType().base_type == BASE_TYPE_SHORT ||
+            field.value.type.VectorType().base_type == BASE_TYPE_INT ||
+            field.value.type.VectorType().base_type == BASE_TYPE_UINT ||
+            field.value.type.VectorType().base_type == BASE_TYPE_LONG ||
+            field.value.type.VectorType().base_type == BASE_TYPE_ULONG ||
+            field.value.type.VectorType().base_type == BASE_TYPE_FLOAT ||
+            field.value.type.VectorType().base_type == BASE_TYPE_DOUBLE ||
+            field.value.type.VectorType().base_type == BASE_TYPE_STRING));
+      std::string getter = dest_cast 
+        + (typeCheck ? convert_prefix : "")
+        + GenGetter(field.value.type);
+      dest_mask = (typeCheck ? convert_suffix : "") + dest_mask;
       code += method_start;
       std::string default_cast = "";
       // only create default casts for c# scalars or vectors of scalars
@@ -696,7 +722,7 @@ class CSharpGenerator : public BaseGenerator {
             code += " { get";
             member_suffix += "} ";
             code += offset_prefix + getter + "(o + " + "__p.";
-            code += "bb_pos) : null";
+            code += "bb_pos)" + convert_suffix + " : null";
             break;
           case BASE_TYPE_ARRAY: FLATBUFFERS_FALLTHROUGH();  // fall thru
           case BASE_TYPE_VECTOR: {
@@ -711,7 +737,9 @@ class CSharpGenerator : public BaseGenerator {
             } else if (vectortype.base_type == BASE_TYPE_UNION) {
             }
             code += "int j)";
-            const auto body = offset_prefix + conditional_cast + getter + "(";
+
+            const auto body = offset_prefix 
+              + conditional_cast + getter + "(";
             if (vectortype.base_type == BASE_TYPE_UNION) {
               code += " where TTable : struct, IFlatbufferObject" + body;
             } else {
@@ -795,6 +823,7 @@ class CSharpGenerator : public BaseGenerator {
       code += member_suffix;
       code += "}\n";
       if (IsVector(field.value.type)) {
+        code += "  [JsonIgnore]\n";
         code += "  public int " + MakeCamel(field.name, true);
         code += "Length";
         code += " { get";
@@ -802,6 +831,14 @@ class CSharpGenerator : public BaseGenerator {
         code += "__p.__vector_len(o) : 0; ";
         code += "} ";
         code += "}\n";
+        // generate list
+        code += "  public IList<" + type_name_dest + "> " + MakeCamel(field.name, true);
+        code += " { get { List<" + type_name_dest + "> list = new List<" +
+                type_name_dest + ">();";
+        code += " for (int i = 0; i < " + MakeCamel(field.name, true) +
+                "Length" + "; i++) { list.Add((" + type_name_dest + ")" +
+                MakeCamel(field.name, true) + "s(i)); }";
+        code += " return list; } }\n";
         // See if we should generate a by-key accessor.
         if (field.value.type.element == BASE_TYPE_STRUCT &&
             !field.value.type.struct_def->fixed) {
@@ -868,7 +905,7 @@ class CSharpGenerator : public BaseGenerator {
           code += "[l]; for (int i = 0; i < l; i++) { a[i] = " + getter;
           code += "(p + i * ";
           code += NumToString(InlineSize(field.value.type.VectorType()));
-          code += "); } return a;";
+          code += ")); } return a;";
         } else {
           code += "return ";
           code += "__p.__vector_as_array<";
